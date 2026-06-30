@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  whisper-api:
+    image: ghcr.io/ggerganov/whisper.cpp:main-server
+    volumes:
+      - ./models:/models
+    command: ["-m", "/models/ggml-large-v3-turbo.bin", "--port", "8080", "-l", "nl"]
+    restart: unless-stopped
+
+  my-backend:
+    build: ./backend
+    environment:
+      - WHISPER_URL=http://whisper-api:8080/inference
+    depends_on:
+      - whisper-api
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "443:443"
+    volumes:
+      - ssl-certs:/etc/nginx/ssl
+    depends_on:
+      - my-backend
+    restart: unless-stopped
+
+volumes:
+  ssl-certs:

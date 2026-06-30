@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>STT at Home</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --accent: #6c63ff;
+      --accent-hover: #7c74ff;
+      --red: #ff4d6a;
+      --text: #e8eaf0;
+      --muted: #7a7e92;
+      --radius: 14px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 40px;
+      gap: 24px;
+    }
+
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* ── Record button ── */
+    #record-btn {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      border: 3px solid var(--accent);
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    #record-btn svg { transition: transform 0.15s; }
+
+    #record-btn:active { transform: scale(0.93); }
+
+    #record-btn.recording {
+      border-color: var(--red);
+      box-shadow: 0 0 0 6px rgba(255,77,106,0.2);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    #record-btn.recording .mic-icon { display: none; }
+    #record-btn.recording .stop-icon { display: block !important; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 6px rgba(255,77,106,0.2); }
+      50%       { box-shadow: 0 0 0 12px rgba(255,77,106,0.08); }
+    }
+
+    #status {
+      font-size: 0.82rem;
+      color: var(--muted);
+      min-height: 1.2em;
+      text-align: center;
+    }
+
+    /* ── Result card ── */
+    #result-card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #result-card.visible { display: flex; }
+
+    #result-text {
+      font-size: 1.05rem;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+
+    #copy-btn {
+      align-self: flex-end;
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #copy-btn:hover, #copy-btn:active { background: var(--border); }
+    #copy-btn.copied { color: #4ade80; border-color: #4ade80; }
+
+    /* ── History ── */
+    #history-section {
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .history-header h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    #clear-btn {
+      font-size: 0.78rem;
+      color: var(--muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #clear-btn:hover { color: var(--red); }
+
+    #history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      animation: slideIn 0.2s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .history-text {
+      font-size: 0.9rem;
+      line-height: 1.5;
+      flex: 1;
+      word-break: break-word;
+    }
+
+    .history-copy {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 6px;
+      transition: color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .history-copy:hover { color: var(--text); }
+    .history-copy.copied { color: #4ade80; }
+
+    .empty-state {
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: center;
+      padding: 16px 0;
+    }
+
+    .stop-icon { display: none; }
+  </style>
+</head>
+<body>
+
+  <h1>STT at Home</h1>
+
+  <button id="record-btn" aria-label="Opnemen">
+    <!-- mic icon -->
+    <svg class="mic-icon" width="36" height="36" viewBox="0 0 24 24" fill="none"
+         stroke="#6c63ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="2" width="6" height="11" rx="3"/>
+      <path d="M5 10a7 7 0 0 0 14 0"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+      <line x1="8"  y1="22" x2="16" y2="22"/>
+    </svg>
+    <!-- stop icon -->
+    <svg class="stop-icon" width="32" height="32" viewBox="0 0 24 24" fill="#ff4d6a">
+      <rect x="4" y="4" width="16" height="16" rx="3"/>
+    </svg>
+  </button>
+
+  <p id="status">Tik om op te nemen</p>
+
+  <div id="result-card">
+    <p id="result-text"></p>
+    <button id="copy-btn">Kopieer</button>
+  </div>
+
+  <section id="history-section">
+    <div class="history-header">
+      <h2>Geschiedenis</h2>
+      <button id="clear-btn">Wissen</button>
+    </div>
+    <div id="history-list">
+      <p class="empty-state">Nog geen transcripties</p>
+    </div>
+  </section>
+
+  <script>
+    const recordBtn   = document.getElementById('record-btn');
+    const statusEl    = document.getElementById('status');
+    const resultCard  = document.getElementById('result-card');
+    const resultText  = document.getElementById('result-text');
+    const copyBtn     = document.getElementById('copy-btn');
+    const historyList = document.getElementById('history-list');
+    const clearBtn    = document.getElementById('clear-btn');
+
+    let mediaRecorder = null;
+    let chunks = [];
+    let recording = false;
+
+    const HISTORY_KEY = 'stt_history';
+
+    function loadHistory() {
+      try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+      catch { return []; }
+    }
+
+    function saveHistory(h) {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+    }
+
+    function renderHistory() {
+      const h = loadHistory();
+      historyList.innerHTML = '';
+      if (!h.length) {
+        historyList.innerHTML = '<p class="empty-state">Nog geen transcripties</p>';
+        return;
+      }
+      h.forEach((text, i) => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+
+        const span = document.createElement('span');
+        span.className = 'history-text';
+        span.textContent = text;
+
+        const btn = document.createElement('button');
+        btn.className = 'history-copy';
+        btn.title = 'Kopieer';
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>`;
+        btn.addEventListener('click', () => copyText(text, btn));
+
+        item.appendChild(span);
+        item.appendChild(btn);
+        historyList.prepend(item);
+      });
+    }
+
+    function addToHistory(text) {
+      const h = loadHistory();
+      h.push(text);
+      if (h.length > 50) h.shift();
+      saveHistory(h);
+      renderHistory();
+    }
+
+    async function copyText(text, btn) {
+      try {
+        await navigator.clipboard.writeText(text);
+        const orig = btn.innerHTML;
+        btn.classList.add('copied');
+        if (btn === copyBtn) btn.textContent = 'Gekopieerd!';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          if (btn === copyBtn) btn.textContent = 'Kopieer';
+          else btn.innerHTML = orig;
+        }, 1800);
+      } catch {
+        prompt('Kopieer handmatig:', text);
+      }
+    }
+
+    async function startRecording() {
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        statusEl.textContent = 'Microfoon toegang geweigerd';
+        return;
+      }
+
+      chunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        sendAudio();
+      };
+      mediaRecorder.start();
+      recording = true;
+      recordBtn.classList.add('recording');
+      statusEl.textContent = 'Opname bezig… tik om te stoppen';
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      recording = false;
+      recordBtn.classList.remove('recording');
+      statusEl.textContent = 'Verwerken…';
+    }
+
+    async function sendAudio() {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const form = new FormData();
+      form.append('audio', blob, 'recording.webm');
+
+      try {
+        const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const text = data.text || '';
+
+        if (text) {
+          resultText.textContent = text;
+          resultCard.classList.add('visible');
+          addToHistory(text);
+          statusEl.textContent = `Taal: ${data.language || '?'} — tik om opnieuw op te nemen`;
+        } else {
+          statusEl.textContent = 'Geen spraak herkend — probeer opnieuw';
+        }
+      } catch (err) {
+        statusEl.textContent = `Fout: ${err.message}`;
+      }
+    }
+
+    recordBtn.addEventListener('click', () => {
+      if (recording) stopRecording();
+      else startRecording();
+    });
+
+    copyBtn.addEventListener('click', () => copyText(resultText.textContent, copyBtn));
+
+    clearBtn.addEventListener('click', () => {
+      saveHistory([]);
+      renderHistory();
+    });
+
+    renderHistory();
+  </script>
+</body>
+</html>
