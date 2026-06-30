@@ -2,10 +2,11 @@ version: '3.8'
 
 services:
   whisper-api:
-    image: ghcr.io/ggerganov/whisper.cpp:main-server
+    image: ghcr.io/ggerganov/whisper.cpp:main
+    entrypoint: ["/app/build/bin/whisper-server"]
     volumes:
       - ./models:/models
-    command: ["-m", "/models/ggml-large-v3-turbo.bin", "--port", "8080", "-l", "nl"]
+    command: ["-m", "/models/ggml-large-v3-turbo.bin", "--port", "8080"]
     restart: unless-stopped
 
   my-backend:

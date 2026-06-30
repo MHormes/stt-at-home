@@ -204,11 +204,41 @@
     }
 
     .stop-icon { display: none; }
+
+    /* ── Language toggle ── */
+    #lang-toggle {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    #lang-toggle button {
+      padding: 7px 18px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #lang-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+    }
   </style>
 </head>
 <body>
 
   <h1>STT at Home</h1>
+
+  <div id="lang-toggle">
+    <button id="lang-nl" class="active" data-lang="nl">NL</button>
+    <button id="lang-en" data-lang="en">EN</button>
+  </div>
 
   <button id="record-btn" aria-label="Opnemen">
     <!-- mic icon -->
@@ -254,6 +284,14 @@
     let mediaRecorder = null;
     let chunks = [];
     let recording = false;
+    let selectedLang = 'nl';
+
+    document.getElementById('lang-toggle').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-lang]');
+      if (!btn || recording) return;
+      selectedLang = btn.dataset.lang;
+      document.querySelectorAll('#lang-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    });
 
     const HISTORY_KEY = 'stt_history';
 
@@ -356,6 +394,7 @@
       const blob = new Blob(chunks, { type: 'audio/webm' });
       const form = new FormData();
       form.append('audio', blob, 'recording.webm');
+      form.append('language', selectedLang);
 
       try {
         const res = await fetch('/api/transcribe', { method: 'POST', body: form });

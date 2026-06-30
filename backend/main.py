@@ -13,7 +13,7 @@ def health():
 
 
 @app.post("/api/transcribe")
-async def transcribe(audio: UploadFile = File(...)):
+async def transcribe(audio: UploadFile = File(...), language: str = "nl"):
     data = await audio.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty audio file")
@@ -23,6 +23,7 @@ async def transcribe(audio: UploadFile = File(...)):
             resp = await client.post(
                 WHISPER_URL,
                 files={"file": (audio.filename or "recording.webm", data, audio.content_type or "audio/webm")},
+                data={"language": language},
             )
             resp.raise_for_status()
         except httpx.HTTPError as e:
