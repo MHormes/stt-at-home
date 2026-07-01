@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import httpx
 from fastapi import FastAPI, UploadFile, File, HTTPException
 
@@ -46,7 +47,8 @@ async def transcribe(audio: UploadFile = File(...), language: str = "nl"):
             raise HTTPException(status_code=502, detail=f"Whisper error: {e}")
 
     result = resp.json()
+    text = re.sub(r"\s+", " ", result.get("text", "")).strip()
     return {
-        "text": result.get("text", "").strip(),
+        "text": text,
         "language": result.get("language", "nl"),
     }
