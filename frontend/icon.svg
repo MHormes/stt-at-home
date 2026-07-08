@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1d27"/>
+      <stop offset="100%" stop-color="#0f1117"/>
+    </linearGradient>
+    <linearGradient id="mic" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9d97ff"/>
+      <stop offset="60%" stop-color="#7c74ff"/>
+      <stop offset="100%" stop-color="#5b52e8"/>
+    </linearGradient>
+    <clipPath id="grille">
+      <path d="M186 182 A70 70 0 0 1 326 182 L326 248 L186 248 Z"/>
+    </clipPath>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="110.5" fill="none" stroke="#2a2d3a" stroke-width="3"/>
+
+  <!-- soundwave ticks -->
+  <g stroke="#6c63ff" stroke-width="14" stroke-linecap="round" opacity="0.5">
+    <line x1="102" y1="216" x2="102" y2="276"/>
+    <line x1="134" y1="186" x2="134" y2="306"/>
+    <line x1="378" y1="186" x2="378" y2="306"/>
+    <line x1="410" y1="216" x2="410" y2="276"/>
+  </g>
+
+  <!-- vintage broadcast mic head (rounded block, e.g. RCA/AKG studio style) -->
+  <path d="M186 182 A70 70 0 0 1 326 182 L326 248 L186 248 Z" fill="url(#mic)" stroke="#12141c" stroke-width="6" stroke-opacity="0.3"/>
+
+  <!-- grille mesh -->
+  <g clip-path="url(#grille)" stroke="#12141c" stroke-width="5" opacity="0.4">
+    <line x1="176" y1="148" x2="336" y2="148"/>
+    <line x1="176" y1="164" x2="336" y2="164"/>
+    <line x1="176" y1="180" x2="336" y2="180"/>
+    <line x1="176" y1="196" x2="336" y2="196"/>
+    <line x1="176" y1="212" x2="336" y2="212"/>
+    <line x1="176" y1="228" x2="336" y2="228"/>
+    <line x1="228" y1="108" x2="228" y2="248"/>
+    <line x1="256" y1="100" x2="256" y2="248"/>
+    <line x1="284" y1="108" x2="284" y2="248"/>
+  </g>
+  <path d="M186 182 A70 70 0 0 1 326 182" fill="none" stroke="#12141c" stroke-width="5" opacity="0.3"/>
+
+  <!-- neck band -->
+  <rect x="196" y="248" width="120" height="16" rx="4" fill="#4d46b8"/>
+
+  <!-- body (slight taper, brushed barrel) -->
+  <path d="M202 264 L310 264 L302 340 L210 340 Z" fill="url(#mic)" stroke="#12141c" stroke-width="4" stroke-opacity="0.25"/>
+  <line x1="207" y1="288" x2="305" y2="288" stroke="#12141c" stroke-width="4" opacity="0.2"/>
+  <line x1="209" y1="312" x2="303" y2="312" stroke="#12141c" stroke-width="4" opacity="0.2"/>
+  <rect x="210" y="340" width="92" height="14" rx="3" fill="#4d46b8"/>
+
+  <!-- stand yoke cradling the body -->
+  <path d="M186 320 Q186 366 256 366 Q326 366 326 320" fill="none" stroke="#4d46b8" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- stand pole -->
+  <line x1="256" y1="366" x2="256" y2="402" stroke="#4d46b8" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- stand base -->
+  <path d="M182 410 Q256 388 330 410 L330 415 Q256 436 182 415 Z" fill="#4d46b8"/>
+</svg>
