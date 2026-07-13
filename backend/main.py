@@ -35,7 +35,7 @@ async def transcribe(audio: UploadFile = File(...), language: str = "nl"):
 
     wav_data = await to_wav(data)
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         try:
             resp = await client.post(
                 WHISPER_URL,

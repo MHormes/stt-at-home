@@ -90,6 +90,22 @@
       text-align: center;
     }
 
+    #retry-btn {
+      display: none;
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: 1px solid var(--red);
+      background: transparent;
+      color: var(--red);
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #retry-btn.visible { display: inline-block; }
+    #retry-btn:hover, #retry-btn:active { background: var(--red); color: #fff; }
+
     /* ── Result card ── */
     #result-card {
       width: 100%;
@@ -266,6 +282,7 @@
   </button>
 
   <p id="status">Tik om op te nemen</p>
+  <button id="retry-btn">Opnieuw proberen</button>
 
   <div id="result-card">
     <p id="result-text"></p>
@@ -285,6 +302,7 @@
   <script>
     const recordBtn   = document.getElementById('record-btn');
     const statusEl    = document.getElementById('status');
+    const retryBtn    = document.getElementById('retry-btn');
     const resultCard  = document.getElementById('result-card');
     const resultText  = document.getElementById('result-text');
     const copyBtn     = document.getElementById('copy-btn');
@@ -295,6 +313,57 @@
     let chunks = [];
     let recording = false;
     let selectedLang = 'nl';
+    let pendingRecording = null; // { blob, language } of the latest failed attempt, if any
+
+    // ── Pending (failed) recording persistence — IndexedDB so a 3-5min blob
+    // survives a page reload without base64/localStorage bloat or main-thread jank.
+    const PENDING_DB = 'stt-at-home';
+    const PENDING_STORE = 'pending-recording';
+    const PENDING_KEY = 'latest';
+
+    function openPendingDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(PENDING_DB, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(PENDING_STORE);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function savePendingRecording(blob, language) {
+      const db = await openPendingDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(PENDING_STORE, 'readwrite');
+        tx.objectStore(PENDING_STORE).put({ blob, language, ts: Date.now() }, PENDING_KEY);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function loadPendingRecording() {
+      const db = await openPendingDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(PENDING_STORE, 'readonly');
+        const req = tx.objectStore(PENDING_STORE).get(PENDING_KEY);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function clearPendingRecording() {
+      const db = await openPendingDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(PENDING_STORE, 'readwrite');
+        tx.objectStore(PENDING_STORE).delete(PENDING_KEY);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    function hideRetry() {
+      pendingRecording = null;
+      retryBtn.classList.remove('visible');
+    }
 
     document.getElementById('lang-toggle').addEventListener('click', e => {
       const btn = e.target.closest('button[data-lang]');
@@ -378,12 +447,15 @@
         return;
       }
 
+      hideRetry();
       chunks = [];
       mediaRecorder = new MediaRecorder(stream);
       mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
-        sendAudio();
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        try { await savePendingRecording(blob, selectedLang); } catch {}
+        transcribeBlob(blob, selectedLang);
       };
       mediaRecorder.start();
       recording = true;
@@ -400,17 +472,22 @@
       statusEl.textContent = 'Verwerken…';
     }
 
-    async function sendAudio() {
-      const blob = new Blob(chunks, { type: 'audio/webm' });
+    async function transcribeBlob(blob, language) {
+      retryBtn.classList.remove('visible');
+      statusEl.textContent = 'Verwerken…';
+
       const form = new FormData();
       form.append('audio', blob, 'recording.webm');
-      form.append('language', selectedLang);
+      form.append('language', language);
 
       try {
         const res = await fetch('/api/transcribe', { method: 'POST', body: form });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const text = data.text || '';
+
+        try { await clearPendingRecording(); } catch {}
+        pendingRecording = null;
 
         if (text) {
           resultText.textContent = text;
@@ -421,6 +498,8 @@
           statusEl.textContent = 'Geen spraak herkend — probeer opnieuw';
         }
       } catch (err) {
+        pendingRecording = { blob, language };
+        retryBtn.classList.add('visible');
         statusEl.textContent = `Fout: ${err.message}`;
       }
     }
@@ -432,12 +511,28 @@
 
     copyBtn.addEventListener('click', () => copyText(resultText.textContent, copyBtn));
 
+    retryBtn.addEventListener('click', () => {
+      if (!pendingRecording || recording) return;
+      transcribeBlob(pendingRecording.blob, pendingRecording.language);
+    });
+
     clearBtn.addEventListener('click', () => {
       saveHistory([]);
       renderHistory();
     });
 
     renderHistory();
+
+    (async () => {
+      try {
+        const pending = await loadPendingRecording();
+        if (pending) {
+          pendingRecording = { blob: pending.blob, language: pending.language };
+          statusEl.textContent = 'Vorige opname mislukt — tik op opnieuw proberen';
+          retryBtn.classList.add('visible');
+        }
+      } catch {}
+    })();
   </script>
 </body>
 </html>
