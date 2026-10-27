@@ -1,8 +1,8 @@
 # STT at Home
 
-Self-hosted speech-to-text for local network use. Record audio from any device on your LAN, get a transcription back instantly.
+Self-hosted speech-to-text for local network use. Record audio from any device on your LAN, get a transcription back within seconds.
 
-Built with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) for transcription, a FastAPI backend, and a minimal browser UI served over HTTPS — so microphone access works on mobile without any app install.
+Built with [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (via [onnx-asr](https://github.com/istupakov/onnx-asr)) for transcription, a FastAPI backend, and a minimal browser UI served over HTTPS — so microphone access works on mobile without any app install.
 
 All audio stays on your own hardware. Nothing leaves your network. That is the whole point: it replaces the cloud dictation in AI chat apps for journaling (Obsidian), without handing a diary to an AI company.
 
@@ -11,45 +11,42 @@ All audio stays on your own hardware. Nothing leaves your network. That is the w
 ## Architecture
 
 ```
-browser (PWA)  ──HTTPS:8443──▶  nginx-fe  ──/api/──▶  python-be  ──▶  whisper-api
-                                (static UI,            (FastAPI,        (whisper.cpp
-                                 self-signed cert)      ffmpeg → wav)    whisper-server)
+browser (PWA)  ──HTTPS:8443──▶  nginx-fe  ──/api/──▶  python-be  ──▶  parakeet-api
+                                (static UI,            (FastAPI,        (onnx-asr,
+                                 self-signed cert)      ffmpeg → wav)    Parakeet + silero VAD)
 ```
 
-| Service       | Source                               | Role                                                                    |
-| ------------- | ------------------------------------ | ----------------------------------------------------------------------- |
-| `nginx-fe`    | `frontend/`                          | Serves `index.html` + PWA assets, terminates TLS, proxies `/api/`       |
-| `python-be`   | `backend/main.py`                    | Converts any upload to 16 kHz mono WAV with ffmpeg, forwards to whisper |
-| `whisper-api` | `ghcr.io/ggerganov/whisper.cpp:main` | Runs `whisper-server` with the model from `./models`                    |
-| `parakeet-api` | `parakeet/` | **Temporary side-by-side test.** NVIDIA Parakeet TDT 0.6B v3 (int8 ONNX via onnx-asr) |
+| Service        | Source            | Role                                                                     |
+| -------------- | ----------------- | ------------------------------------------------------------------------ |
+| `nginx-fe`     | `frontend/`       | Serves `index.html` + PWA assets, terminates TLS, proxies `/api/`        |
+| `python-be`    | `backend/main.py` | Converts any upload to 16 kHz mono WAV with ffmpeg, forwards to Parakeet |
+| `parakeet-api` | `parakeet/`       | Runs Parakeet TDT 0.6B v3 (int8 ONNX) on CPU                             |
 
 The TLS cert is self-signed and generated on first start by `frontend/entrypoint.sh` (stored in the `ssl-certs` volume). Browsers will warn once; accept it so the mic works.
 
 ## Model and hardware
 
-- **Model:** `ggml-large-v3-turbo-q5_0.bin`: OpenAI Whisper large-v3-turbo, quantized to 5-bit for CPU speed. Newest open-weight Whisper as of Oct 2026. Newer OpenAI speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
-- **CPU only.** The host doesn't have enough VRAM, so whisper.cpp runs on CPU with `-t 6` (6 threads). Tune `-t` in `docker-compose.yml` to the cores given to the CT; more threads than physical cores slows it down. The CT has 6 cores. Measured Oct 2026: ~28 s per 30 s whisper window, for both the f16 and the q5_0 model.
-- **Languages:** Dutch (default) and English, picked with the toggle in the UI. The language is forced rather than auto-detected, which is more reliable for short clips.
-- **Speed:** whisper always processes a full 30 s window, padding shorter audio. With the unquantized model on 6 CPU threads, one window took about 28 s, so a transcription takes roughly as long as the recording. q5_0 is the attempt to bring that down; `-q8_0` is the middle ground if accuracy suffers. See _Whisper model update_ in [docs/update_guide.md](docs/update_guide.md).
+- **Model:** NVIDIA Parakeet TDT 0.6B v3, int8-quantized ONNX (`nemo-parakeet-tdt-0.6b-v3` in onnx-asr). License CC-BY-4.0. On first start, `parakeet-api` downloads it (~640 MB) plus the silero VAD from Hugging Face into the `hf-cache` volume. That is a model download only; audio never leaves the CT.
+- **Languages:** 25 European languages including Dutch and English. Language is **auto-detected**; there is no language setting.
+- **Long audio:** Parakeet handles ~20–30 s at once, so the silero VAD splits recordings at pauses and the segment texts are joined.
+- **Hardware:** Proxmox LXC CT with 6 cores of an Intel i7-10710U (15 W laptop chip). No GPU.
+- **Speed (measured Oct 2026):** 32.2 s of audio in 3.8 s with Parakeet (~8.5× real time), against 57.9 s with Whisper large-v3-turbo.
 
-### Considered alternatives
+### Engine history and alternatives
 
-Checked Oct 2026, not adopted (Whisper's Dutch + English quality is the reason to stay):
-
-- **NVIDIA Parakeet TDT 0.6B v3**: 25 European languages including Dutch, several times faster than Whisper on CPU, doesn't invent text during silences. Needs a test on real Dutch journal audio before considering it.
-- **Transcribe-while-talking (tried and reverted, Oct 2026):** cutting the recording at pauses and transcribing the segments while still talking. Because of the fixed ~28 s cost per 30 s window on this CPU, segments queued up faster than they were processed. No text showed while talking, and the total wait got longer (more windows per recording). This only works with an engine that runs much faster than real time.
-- **Mistral Voxtral Mini 4B Realtime**: true word-by-word streaming, Dutch supported, Apache 2.0. Built for a GPU; CPU inference via `voxtral.cpp`/llama.cpp GGUF is experimental.
+- **Whisper large-v3-turbo (whisper.cpp), until Oct 2026.** Very good Dutch and English, but on this CPU each 30 s window cost ~28 s, the same for the f16 and q5_0 models (the build already used AVX2/FMA). Since Oct 2026 Parakeet is on trial as the main engine. The Whisper models are still in `./models` on the CT. To switch back, restore the Whisper-only version (commit `e3d5aef`): `git checkout e3d5aef -- docker-compose.yml backend/main.py frontend/index.html`, then `docker-compose up --build -d --remove-orphans`. Possible Whisper speedups that weren't tried: the Intel UHD 620 iGPU via OpenVINO, or `--audio-ctx` for short clips.
+- **Transcribe-while-talking (tried and reverted, Oct 2026):** cutting the recording at pauses and transcribing the segments while still talking. With Whisper's fixed ~28 s cost per window, segments queued up faster than they were processed and the total wait got longer. This could be worth revisiting with Parakeet, which runs much faster than real time.
+- **Mistral Voxtral Mini 4B Realtime:** true word-by-word streaming, Dutch supported, Apache 2.0. Built for a GPU; CPU inference via `voxtral.cpp`/llama.cpp GGUF is experimental.
+- OpenAI's newer speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
 
 ## Setup
 
-On the host (a Proxmox LXC CT with Docker):
+On the host (a Proxmox LXC CT with Docker and docker-compose v1):
 
 ```bash
 git clone <this repo> stt-at-home && cd stt-at-home
-mkdir -p models
-curl -L -o models/ggml-large-v3-turbo.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 docker-compose up --build -d
+docker-compose logs -f parakeet-api   # first start: wait for the model download and "Uvicorn running"
 ```
 
 Open `https://<CT-IP>:8443`, accept the certificate, and add the page to your home screen to install it as a PWA.
@@ -60,13 +57,7 @@ Tap the button to record, tap again to stop. The text appears in the result card
 
 If a transcription fails, the recording is kept in IndexedDB and a retry button shows up, even after the page is reloaded.
 
-## Side-by-side test: Whisper vs Parakeet
-
-While `PARAKEET_URL` is set on `python-be`, every recording is transcribed by Whisper first and then by Parakeet, one after the other so both get the full CPU and the timings are fair. The result card shows the Whisper text (which is what goes into the history), followed by the Parakeet text and both processing times. `python-be` logs both timings too.
-
-- Parakeet picks the language itself (25 European languages); the NL/EN toggle only affects Whisper.
-- On first start, `parakeet-api` downloads the model (~640 MB) and the silero VAD from Hugging Face into the `hf-cache` volume. That is a model download only; audio never leaves the CT.
-- To end the test: remove the `parakeet-api` service and the `PARAKEET_URL` line from `docker-compose.yml`, then `docker-compose up -d --remove-orphans`.
+`python-be` logs `transcribed Xs audio in Ys` for every request.
 
 ## Maintenance
 

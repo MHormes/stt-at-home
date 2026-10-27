@@ -1,16 +1,6 @@
 version: '3.8'
 
 services:
-  whisper-api:
-    container_name: whisper-api
-    image: ghcr.io/ggerganov/whisper.cpp:main
-    entrypoint: ["/app/build/bin/whisper-server"]
-    volumes:
-      - ./models:/models
-    command: ["-m", "/models/ggml-large-v3-turbo-q5_0.bin", "--host", "0.0.0.0", "--port", "8080", "-t", "6"]
-    restart: unless-stopped
-
-  # Side-by-side test: remove this service and PARAKEET_URL below to go back to whisper only
   parakeet-api:
     container_name: parakeet-api
     build: ./parakeet
@@ -22,10 +12,8 @@ services:
     container_name: python-be
     build: ./backend
     environment:
-      - WHISPER_URL=http://whisper-api:8080/inference
       - PARAKEET_URL=http://parakeet-api:8090/transcribe
     depends_on:
-      - whisper-api
       - parakeet-api
     restart: unless-stopped
 
