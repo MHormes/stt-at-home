@@ -27,10 +27,17 @@ Check [hub.docker.com/_/nginx](https://hub.docker.com/_/nginx) for a newer `x.x-
 **`docker-compose.yml`** — whisper.cpp image:
 
 ```yaml
-image: ghcr.io/ggerganov/whisper.cpp:main-server
+image: ghcr.io/ggerganov/whisper.cpp:main
+entrypoint: ["/app/build/bin/whisper-server"]
 ```
 
-This always pulls the latest build on rebuild — no version pin to update.
+Unpinned `main` tag, so no version to bump, but `docker compose up --build` does **not** re-pull it. Pull explicitly:
+
+```bash
+docker compose pull whisper-api
+```
+
+Note: whisper.cpp moved from `ggerganov` to the `ggml-org` GitHub org. As of Oct 2026 both `ghcr.io/ggerganov/whisper.cpp:main` and `ghcr.io/ggml-org/whisper.cpp:main` exist but serve different images, so the old path is probably no longer updated. See *Switch whisper.cpp image to ggml-org* below.
 
 ---
 
@@ -69,7 +76,7 @@ Verify all containers are running:
 docker compose ps
 ```
 
-Open the app in a browser (`https://<CT-IP>`), record a short audio clip, and confirm a transcription comes back. Check logs if anything looks off:
+Open the app in a browser (`https://<CT-IP>:8443`), record a short audio clip, and confirm a transcription comes back. Check logs if anything looks off:
 
 ```bash
 docker compose logs -f
@@ -95,12 +102,31 @@ pct delsnapshot <CTID> <snapshot-name>
 2. `docker compose up --build -d`
 3. Test transcription end-to-end
 
-**Whisper model update** (new model released):
+**Whisper model update** (new model released, or switching to a quantized variant):
 
-1. Download the new `.bin` to the `models/` directory on the CT
-2. Update the `command` arg in `docker-compose.yml`:
-   ```yaml
-   command: ["-m", "/models/ggml-<new-model>.bin", "--port", "8080"]
+Current model: `ggml-large-v3-turbo.bin`, running on CPU. Ready-made files are at [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp/tree/main). The `-q8_0` / `-q5_0` variants of a model are quantized: faster on CPU, with near-identical accuracy.
+
+1. Download the new `.bin` to the `models/` directory on the CT:
+   ```bash
+   curl -L -o models/ggml-<new-model>.bin      https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-<new-model>.bin
    ```
-3. `docker compose up --build -d` (or `docker compose restart whisper-api`)
+2. Update the model path in the `command` arg in `docker-compose.yml`. Keep `--host 0.0.0.0` (without it the server only listens on localhost and `python-be` can't reach it) and `-t`:
+   ```yaml
+   command: ["-m", "/models/ggml-<new-model>.bin", "--host", "0.0.0.0", "--port", "8080", "-t", "6"]
+   ```
+3. `docker compose up -d whisper-api`
+4. Test transcription in both Dutch and English
+
+As of Oct 2026, large-v3-turbo is the newest open-weight Whisper. OpenAI's newer speech models are API-only. See README → *Considered alternatives* for non-Whisper options.
+
+**Switch whisper.cpp image to ggml-org** (one-time):
+
+1. In `docker-compose.yml`: `image: ghcr.io/ggml-org/whisper.cpp:main`
+2. Check the server binary path is still `/app/build/bin/whisper-server`:
+   ```bash
+   docker run --rm --entrypoint ls ghcr.io/ggml-org/whisper.cpp:main /app/build/bin
+   ```
+3. `docker compose pull whisper-api && docker compose up -d whisper-api`
 4. Test transcription
+
+**Thread count** (`-t` in `docker-compose.yml`): match the number of physical cores assigned to the CT. More threads than that makes it slower.
