@@ -26,16 +26,17 @@ The TLS cert is self-signed and generated on first start by `frontend/entrypoint
 
 ## Model and hardware
 
-- **Model:** `ggml-large-v3-turbo.bin` — OpenAI Whisper large-v3-turbo, the newest open-weight Whisper (as of Oct 2026). Newer OpenAI speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
+- **Model:** `ggml-large-v3-turbo-q5_0.bin`: OpenAI Whisper large-v3-turbo, quantized to 5-bit for CPU speed. Newest open-weight Whisper as of Oct 2026. Newer OpenAI speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
 - **CPU only.** The host doesn't have enough VRAM, so whisper.cpp runs on CPU with `-t 6` (6 threads). Tune `-t` in `docker-compose.yml` to the cores given to the CT; more threads than physical cores slows it down.
 - **Languages:** Dutch (default) and English, picked with the toggle in the UI. The language is forced rather than auto-detected, which is more reliable for short clips.
-- **Faster variant (optional):** a quantized `ggml-large-v3-turbo-q8_0.bin` (or `-q5_0`) is noticeably faster on CPU with nearly the same accuracy. See _Whisper model update_ in [docs/update_guide.md](docs/update_guide.md).
+- **Speed:** whisper always processes a full 30 s window, padding shorter audio. With the unquantized model on 6 CPU threads, one window took about 28 s, so a transcription takes roughly as long as the recording. q5_0 is the attempt to bring that down; `-q8_0` is the middle ground if accuracy suffers. See _Whisper model update_ in [docs/update_guide.md](docs/update_guide.md).
 
 ### Considered alternatives
 
 Checked Oct 2026, not adopted (Whisper's Dutch + English quality is the reason to stay):
 
 - **NVIDIA Parakeet TDT 0.6B v3**: 25 European languages including Dutch, several times faster than Whisper on CPU, doesn't invent text during silences. Needs a test on real Dutch journal audio before considering it.
+- **Transcribe-while-talking (tried and reverted, Oct 2026):** cutting the recording at pauses and transcribing the segments while still talking. Because of the fixed ~28 s cost per 30 s window on this CPU, segments queued up faster than they were processed. No text showed while talking, and the total wait got longer (more windows per recording). This only works with an engine that runs much faster than real time.
 - **Mistral Voxtral Mini 4B Realtime**: true word-by-word streaming, Dutch supported, Apache 2.0. Built for a GPU; CPU inference via `voxtral.cpp`/llama.cpp GGUF is experimental.
 
 ## Setup
@@ -57,15 +58,6 @@ Open `https://<CT-IP>:8443`, accept the certificate, and add the page to your ho
 Tap the button to record, tap again to stop. The text appears in the result card, which has a copy button, and is added to the history (the last 50 transcripts, stored in the browser's `localStorage`).
 
 If a transcription fails, the recording is kept in IndexedDB and a retry button shows up, even after the page is reloaded.
-
-### Transcribe-while-talking
-
-Whisper can't stream, so the frontend fakes it: it listens to the mic level and cuts the recording at natural pauses into segments of roughly 8–28 s. Each segment is sent to `/api/transcribe` while you keep talking, with the tail of the text so far as a whisper `prompt` so casing and punctuation carry over between segments. Text appears in the result card as segments finish. At stop, only the last segment still needs processing.
-
-- Segments with no detected speech are skipped. Whisper tends to invent text (like "Ondertiteling door…") on silence.
-- If any segment fails, the full recording (captured in parallel with `MediaRecorder`) is transcribed in one go instead, with the usual retry button.
-- Browsers without AudioWorklet fall back to the old record → upload → transcribe flow.
-- Tuning knobs are at the top of the script in `frontend/index.html`: `SEG_MIN_SEC`, `SEG_MAX_SEC`, `SILENCE_CUT_SEC`. Each segment costs one full whisper pass (whisper always processes a 30 s window), so shorter segments mean faster live text but more CPU in total. If the CPU can't keep up with your speaking pace, the backlog grows and the final wait gets longer. `python-be` logs `transcribed Xs audio in Ys` for every request, so you can check.
 
 ## Maintenance
 

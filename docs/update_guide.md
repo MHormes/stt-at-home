@@ -76,7 +76,7 @@ Verify all containers are running:
 docker compose ps
 ```
 
-Open the app in a browser (`https://<CT-IP>:8443`), record a short audio clip, and confirm a transcription comes back. Also record ~40 s with a few pauses: text should appear while you're still talking (segmented transcription), and the final result should come back within a few seconds of stopping. Check logs if anything looks off:
+Open the app in a browser (`https://<CT-IP>:8443`), record a short audio clip, and confirm a transcription comes back. Check logs if anything looks off:
 
 ```bash
 docker compose logs -f
@@ -104,7 +104,7 @@ pct delsnapshot <CTID> <snapshot-name>
 
 **Whisper model update** (new model released, or switching to a quantized variant):
 
-Current model: `ggml-large-v3-turbo.bin`, running on CPU. Ready-made files are at [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp/tree/main). The `-q8_0` / `-q5_0` variants of a model are quantized: faster on CPU, with near-identical accuracy.
+Current model: `ggml-large-v3-turbo-q5_0.bin`, running on CPU. Ready-made files are at [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp/tree/main). The `-q8_0` / `-q5_0` variants of a model are quantized: faster on CPU, with near-identical accuracy.
 
 1. Download the new `.bin` to the `models/` directory on the CT:
    ```bash

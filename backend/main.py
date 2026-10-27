@@ -31,21 +31,12 @@ async def to_wav(data: bytes) -> bytes:
 
 
 @app.post("/api/transcribe")
-async def transcribe(
-    audio: UploadFile = File(...),
-    language: str = Form("nl"),
-    # Tail of the text transcribed so far; keeps casing/punctuation consistent across segments
-    prompt: str = Form(""),
-):
+async def transcribe(audio: UploadFile = File(...), language: str = Form("nl")):
     data = await audio.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty audio file")
 
     wav_data = await to_wav(data)
-    fields = {"language": language}
-    if prompt:
-        fields["prompt"] = prompt[-200:]
-
     started = time.monotonic()
 
     async with httpx.AsyncClient(timeout=600.0) as client:
@@ -53,7 +44,7 @@ async def transcribe(
             resp = await client.post(
                 WHISPER_URL,
                 files={"file": ("recording.wav", wav_data, "audio/wav")},
-                data=fields,
+                data={"language": language},
             )
             resp.raise_for_status()
         except httpx.HTTPError as e:
