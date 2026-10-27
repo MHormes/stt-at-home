@@ -284,6 +284,143 @@
     let recording = false;
     let selectedLang = 'nl';
     let pendingRecording = null; // { blob, language } of the latest failed attempt, if any
+    let activeSeg = null;        // segmenter of the recording in progress, if supported
+
+    // ── Segmented transcription: cut the recording at pauses and transcribe each
+    // piece while still talking, so at stop only the last few seconds remain.
+    // The full MediaRecorder blob is kept as fallback if any segment fails.
+    const SEG_MIN_SEC = 5;        // don't cut before this much audio (shorter pieces lose sentence context)
+    const SEG_MAX_SEC = 20;       // Parakeet handles ~20-30s at once; force a cut before that
+    const SILENCE_CUT_SEC = 0.5;  // pause length that triggers a cut
+
+    const WORKLET_SRC = `
+      class Tap extends AudioWorkletProcessor {
+        constructor() { super(); this.buf = new Float32Array(2048); this.n = 0; }
+        process(inputs) {
+          const ch = inputs[0][0];
+          if (ch) for (let i = 0; i < ch.length; i++) {
+            this.buf[this.n++] = ch[i];
+            if (this.n === this.buf.length) {
+              this.port.postMessage(this.buf);
+              this.buf = new Float32Array(2048);
+              this.n = 0;
+            }
+          }
+          return true;
+        }
+      }
+      registerProcessor('tap', Tap);`;
+
+    async function startSegmenter(ctx, stream, language) {
+      try {
+        const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        const source = ctx.createMediaStreamSource(stream);
+        const node = new AudioWorkletNode(ctx, 'tap');
+        const seg = {
+          ctx, source, node, language, sampleRate: ctx.sampleRate,
+          chunks: [], levels: [], speech: [], len: 0, silentRun: 0, floor: null,
+          texts: [], queue: Promise.resolve(), failed: null,
+        };
+        node.port.onmessage = e => onAudioChunk(seg, e.data);
+        source.connect(node);
+        node.connect(ctx.destination); // outputs silence; keeps the node pulled by the graph
+        await ctx.resume();
+        return seg;
+      } catch {
+        ctx.close().catch(() => {});
+        return null;
+      }
+    }
+
+    function onAudioChunk(seg, chunk) {
+      let sum = 0;
+      for (let i = 0; i < chunk.length; i++) sum += chunk[i] * chunk[i];
+      const rms = Math.sqrt(sum / chunk.length);
+      seg.floor = seg.floor === null ? rms
+        : rms < seg.floor ? seg.floor * 0.7 + rms * 0.3   // drop fast to quiet moments
+        : seg.floor * 0.999 + rms * 0.001;                // creep up slowly during speech
+      const isSpeech = rms > 0.02 || rms > Math.max(seg.floor * 3, 0.003);
+      const isSilent = rms < seg.floor * 2 + 0.001;
+
+      seg.chunks.push(chunk);
+      seg.levels.push(rms);
+      seg.speech.push(isSpeech);
+      seg.len += chunk.length;
+      seg.silentRun = isSilent ? seg.silentRun + chunk.length / seg.sampleRate : 0;
+
+      const sec = seg.len / seg.sampleRate;
+      if (sec >= SEG_MIN_SEC && seg.silentRun >= SILENCE_CUT_SEC) {
+        cutSegment(seg, seg.chunks.length);
+      } else if (sec >= SEG_MAX_SEC) {
+        // No pause found: cut at the quietest moment in the last third
+        let best = seg.chunks.length - 1;
+        for (let i = Math.floor(seg.chunks.length * 2 / 3); i < seg.chunks.length; i++) {
+          if (seg.levels[i] < seg.levels[best]) best = i;
+        }
+        cutSegment(seg, best + 1);
+      }
+    }
+
+    function cutSegment(seg, n) {
+      const chunks = seg.chunks.splice(0, n);
+      seg.levels.splice(0, n);
+      const speechCount = seg.speech.splice(0, n).filter(Boolean).length;
+      seg.len = seg.chunks.reduce((t, c) => t + c.length, 0);
+      seg.silentRun = 0;
+      // Skip pure silence: whisper hallucinates text on it
+      if (speechCount >= 3) enqueueSegment(seg, encodeWav(chunks, seg.sampleRate));
+    }
+
+    function stopSegmenter(seg) {
+      seg.node.port.onmessage = null;
+      seg.source.disconnect();
+      seg.node.disconnect();
+      if (seg.chunks.length) cutSegment(seg, seg.chunks.length);
+      seg.ctx.close().catch(() => {});
+    }
+
+    // Segments go out one at a time, in order
+    function enqueueSegment(seg, wav) {
+      seg.queue = seg.queue.then(async () => {
+        if (seg.failed) return;
+        const form = new FormData();
+        form.append('audio', wav, 'segment.wav');
+        form.append('language', seg.language);
+        try {
+          const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (data.text) {
+            seg.texts.push(data.text);
+            resultText.textContent = seg.texts.join(' ');
+            resultCard.classList.add('visible');
+          }
+        } catch (err) {
+          seg.failed = err;
+        }
+      });
+    }
+
+    function encodeWav(chunks, sampleRate) {
+      const len = chunks.reduce((n, c) => n + c.length, 0);
+      const v = new DataView(new ArrayBuffer(44 + len * 2));
+      const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+      str(0, 'RIFF'); v.setUint32(4, 36 + len * 2, true); str(8, 'WAVE');
+      str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, len * 2, true);
+      let o = 44;
+      for (const c of chunks) {
+        for (let i = 0; i < c.length; i++, o += 2) {
+          const x = Math.max(-1, Math.min(1, c[i]));
+          v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+        }
+      }
+      return new Blob([v.buffer], { type: 'audio/wav' });
+    }
 
     // ── Pending (failed) recording persistence — IndexedDB so a 3-5min blob
     // survives a page reload without base64/localStorage bloat or main-thread jank.
@@ -402,23 +539,40 @@
     }
 
     async function startRecording() {
+      // Created before any await so iOS still counts it as part of the tap
+      let ctx = null;
+      try { if (window.AudioWorkletNode) ctx = new AudioContext(); } catch {}
+
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {
+        if (ctx) ctx.close().catch(() => {});
         statusEl.textContent = 'Microfoon toegang geweigerd';
         return;
       }
 
       hideRetry();
+      const language = selectedLang;
+      const seg = ctx ? await startSegmenter(ctx, stream, language) : null;
+      activeSeg = seg;
+      if (seg) {
+        resultText.textContent = '';
+        resultCard.classList.remove('visible');
+      }
+
       chunks = [];
       mediaRecorder = new MediaRecorder(stream);
       mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(chunks, { type: 'audio/webm' });
-        try { await savePendingRecording(blob, selectedLang); } catch {}
-        transcribeBlob(blob, selectedLang);
+        try { await savePendingRecording(blob, language); } catch {}
+        if (!seg) return transcribeBlob(blob, language);
+        await seg.queue;
+        // A segment failed: redo the whole recording the old way (that path has the retry button)
+        if (seg.failed) return transcribeBlob(blob, language);
+        showResult(seg.texts.join(' '), language);
       };
       mediaRecorder.start();
       recording = true;
@@ -427,6 +581,10 @@
     }
 
     function stopRecording() {
+      if (activeSeg) {
+        stopSegmenter(activeSeg);
+        activeSeg = null;
+      }
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
       }
@@ -447,23 +605,25 @@
         const res = await fetch('/api/transcribe', { method: 'POST', body: form });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const text = data.text || '';
-
-        try { await clearPendingRecording(); } catch {}
-        pendingRecording = null;
-
-        if (text) {
-          resultText.textContent = text;
-          resultCard.classList.add('visible');
-          addToHistory(text);
-          statusEl.textContent = 'Klaar — tik om opnieuw op te nemen';
-        } else {
-          statusEl.textContent = 'Geen spraak herkend — probeer opnieuw';
-        }
+        await showResult(data.text || '', data.language);
       } catch (err) {
         pendingRecording = { blob, language };
         retryBtn.classList.add('visible');
         statusEl.textContent = `Fout: ${err.message}`;
+      }
+    }
+
+    async function showResult(text, language) {
+      try { await clearPendingRecording(); } catch {}
+      pendingRecording = null;
+
+      if (text) {
+        resultText.textContent = text;
+        resultCard.classList.add('visible');
+        addToHistory(text);
+        statusEl.textContent = 'Klaar — tik om opnieuw op te nemen';
+      } else {
+        statusEl.textContent = 'Geen spraak herkend — probeer opnieuw';
       }
     }
 

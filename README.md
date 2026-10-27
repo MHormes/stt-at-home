@@ -35,7 +35,7 @@ The TLS cert is self-signed and generated on first start by `frontend/entrypoint
 ### Engine history and alternatives
 
 - **Whisper large-v3-turbo (whisper.cpp), until Oct 2026.** Very good Dutch and English, but on this CPU each 30 s window cost ~28 s, the same for the f16 and q5_0 models (the build already used AVX2/FMA). Since Oct 2026 Parakeet is on trial as the main engine. The Whisper models are still in `./models` on the CT. To switch back, restore the Whisper-only version (commit `e3d5aef`): `git checkout e3d5aef -- docker-compose.yml backend/main.py frontend/index.html`, then `docker-compose up --build -d --remove-orphans`. Possible Whisper speedups that weren't tried: the Intel UHD 620 iGPU via OpenVINO, or `--audio-ctx` for short clips.
-- **Transcribe-while-talking (tried and reverted, Oct 2026):** cutting the recording at pauses and transcribing the segments while still talking. With Whisper's fixed ~28 s cost per window, segments queued up faster than they were processed and the total wait got longer. This could be worth revisiting with Parakeet, which runs much faster than real time.
+- **Transcribe-while-talking with Whisper (tried and reverted, Oct 2026):** with Whisper's fixed ~28 s cost per window, segments queued up faster than they were processed and the total wait got longer. Now back on trial with Parakeet (see _Using it_).
 - **Mistral Voxtral Mini 4B Realtime:** true word-by-word streaming, Dutch supported, Apache 2.0. Built for a GPU; CPU inference via `voxtral.cpp`/llama.cpp GGUF is experimental.
 - OpenAI's newer speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
 
@@ -58,6 +58,15 @@ Tap the button to record, tap again to stop. The text appears in the result card
 If a transcription fails, the recording is kept in IndexedDB and a retry button shows up, even after the page is reloaded.
 
 `python-be` logs `transcribed Xs audio in Ys` for every request.
+
+### Transcribe-while-talking
+
+Parakeet can't stream, so the frontend fakes it: it listens to the mic level and cuts the recording at natural pauses into segments of roughly 5–20 s. Each segment goes to `/api/transcribe` while you keep talking, and text appears in the result card as segments finish. At stop, only the last segment still needs processing.
+
+- Segments with no detected speech are skipped.
+- If any segment fails, the full recording (captured in parallel with `MediaRecorder`) is transcribed in one go instead, with the usual retry button.
+- Browsers without AudioWorklet fall back to the plain record → upload → transcribe flow.
+- Tuning knobs are at the top of the script in `frontend/index.html`: `SEG_MIN_SEC`, `SEG_MAX_SEC`, `SILENCE_CUT_SEC`. Shorter segments make text appear sooner, but Parakeet sees less context per piece, which can cost accuracy at the cut points.
 
 ## Maintenance
 
