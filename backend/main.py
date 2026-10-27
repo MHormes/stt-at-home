@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import os
 import re
+import time
 import httpx
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 
 app = FastAPI()
+log = logging.getLogger("uvicorn.error")
 
 WHISPER_URL = os.getenv("WHISPER_URL", "http://whisper-api:8080/inference")
 
@@ -28,27 +31,39 @@ async def to_wav(data: bytes) -> bytes:
 
 
 @app.post("/api/transcribe")
-async def transcribe(audio: UploadFile = File(...), language: str = "nl"):
+async def transcribe(
+    audio: UploadFile = File(...),
+    language: str = Form("nl"),
+    # Tail of the text transcribed so far; keeps casing/punctuation consistent across segments
+    prompt: str = Form(""),
+):
     data = await audio.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty audio file")
 
     wav_data = await to_wav(data)
+    fields = {"language": language}
+    if prompt:
+        fields["prompt"] = prompt[-200:]
+
+    started = time.monotonic()
 
     async with httpx.AsyncClient(timeout=600.0) as client:
         try:
             resp = await client.post(
                 WHISPER_URL,
                 files={"file": ("recording.wav", wav_data, "audio/wav")},
-                data={"language": language},
+                data=fields,
             )
             resp.raise_for_status()
         except httpx.HTTPError as e:
             raise HTTPException(status_code=502, detail=f"Whisper error: {e}")
 
     result = resp.json()
+    audio_sec = max(len(wav_data) - 44, 0) / 32000  # 16 kHz mono s16 wav
+    log.info("transcribed %.1fs audio in %.1fs (%s)", audio_sec, time.monotonic() - started, language)
     text = re.sub(r"\s+", " ", result.get("text", "")).strip()
     return {
         "text": text,
-        "language": result.get("language", "nl"),
+        "language": result.get("language", language),
     }

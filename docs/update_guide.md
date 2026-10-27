@@ -76,7 +76,7 @@ Verify all containers are running:
 docker compose ps
 ```
 
-Open the app in a browser (`https://<CT-IP>:8443`), record a short audio clip, and confirm a transcription comes back. Check logs if anything looks off:
+Open the app in a browser (`https://<CT-IP>:8443`), record a short audio clip, and confirm a transcription comes back. Also record ~40 s with a few pauses: text should appear while you're still talking (segmented transcription), and the final result should come back within a few seconds of stopping. Check logs if anything looks off:
 
 ```bash
 docker compose logs -f
