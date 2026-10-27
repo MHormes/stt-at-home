@@ -21,13 +21,14 @@ browser (PWA)  ──HTTPS:8443──▶  nginx-fe  ──/api/──▶  python
 | `nginx-fe`    | `frontend/`                          | Serves `index.html` + PWA assets, terminates TLS, proxies `/api/`       |
 | `python-be`   | `backend/main.py`                    | Converts any upload to 16 kHz mono WAV with ffmpeg, forwards to whisper |
 | `whisper-api` | `ghcr.io/ggerganov/whisper.cpp:main` | Runs `whisper-server` with the model from `./models`                    |
+| `parakeet-api` | `parakeet/` | **Temporary side-by-side test.** NVIDIA Parakeet TDT 0.6B v3 (int8 ONNX via onnx-asr) |
 
 The TLS cert is self-signed and generated on first start by `frontend/entrypoint.sh` (stored in the `ssl-certs` volume). Browsers will warn once; accept it so the mic works.
 
 ## Model and hardware
 
 - **Model:** `ggml-large-v3-turbo-q5_0.bin`: OpenAI Whisper large-v3-turbo, quantized to 5-bit for CPU speed. Newest open-weight Whisper as of Oct 2026. Newer OpenAI speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
-- **CPU only.** The host doesn't have enough VRAM, so whisper.cpp runs on CPU with `-t 6` (6 threads). Tune `-t` in `docker-compose.yml` to the cores given to the CT; more threads than physical cores slows it down.
+- **CPU only.** The host doesn't have enough VRAM, so whisper.cpp runs on CPU with `-t 6` (6 threads). Tune `-t` in `docker-compose.yml` to the cores given to the CT; more threads than physical cores slows it down. The CT has 6 cores. Measured Oct 2026: ~28 s per 30 s whisper window, for both the f16 and the q5_0 model.
 - **Languages:** Dutch (default) and English, picked with the toggle in the UI. The language is forced rather than auto-detected, which is more reliable for short clips.
 - **Speed:** whisper always processes a full 30 s window, padding shorter audio. With the unquantized model on 6 CPU threads, one window took about 28 s, so a transcription takes roughly as long as the recording. q5_0 is the attempt to bring that down; `-q8_0` is the middle ground if accuracy suffers. See _Whisper model update_ in [docs/update_guide.md](docs/update_guide.md).
 
@@ -48,7 +49,7 @@ git clone <this repo> stt-at-home && cd stt-at-home
 mkdir -p models
 curl -L -o models/ggml-large-v3-turbo.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
-docker compose up --build -d
+docker-compose up --build -d
 ```
 
 Open `https://<CT-IP>:8443`, accept the certificate, and add the page to your home screen to install it as a PWA.
@@ -58,6 +59,14 @@ Open `https://<CT-IP>:8443`, accept the certificate, and add the page to your ho
 Tap the button to record, tap again to stop. The text appears in the result card, which has a copy button, and is added to the history (the last 50 transcripts, stored in the browser's `localStorage`).
 
 If a transcription fails, the recording is kept in IndexedDB and a retry button shows up, even after the page is reloaded.
+
+## Side-by-side test: Whisper vs Parakeet
+
+While `PARAKEET_URL` is set on `python-be`, every recording is transcribed by Whisper first and then by Parakeet, one after the other so both get the full CPU and the timings are fair. The result card shows the Whisper text (which is what goes into the history), followed by the Parakeet text and both processing times. `python-be` logs both timings too.
+
+- Parakeet picks the language itself (25 European languages); the NL/EN toggle only affects Whisper.
+- On first start, `parakeet-api` downloads the model (~640 MB) and the silero VAD from Hugging Face into the `hf-cache` volume. That is a model download only; audio never leaves the CT.
+- To end the test: remove the `parakeet-api` service and the `PARAKEET_URL` line from `docker-compose.yml`, then `docker-compose up -d --remove-orphans`.
 
 ## Maintenance
 

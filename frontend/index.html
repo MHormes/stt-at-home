@@ -127,7 +127,7 @@
       word-break: break-word;
     }
 
-    #copy-btn {
+    #copy-btn, #compare-copy {
       align-self: flex-end;
       padding: 8px 18px;
       border-radius: 8px;
@@ -140,8 +140,20 @@
       -webkit-tap-highlight-color: transparent;
     }
 
-    #copy-btn:hover, #copy-btn:active { background: var(--border); }
-    #copy-btn.copied { color: #4ade80; border-color: #4ade80; }
+    #copy-btn:hover, #copy-btn:active, #compare-copy:hover, #compare-copy:active { background: var(--border); }
+    #copy-btn.copied, #compare-copy.copied { color: #4ade80; border-color: #4ade80; }
+
+    /* ── Side-by-side test (only shown when the backend has PARAKEET_URL set) ── */
+    #compare {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    #compare.visible { display: flex; }
+    .compare-label { font-size: 0.8rem; color: var(--muted); }
+    #compare-text { line-height: 1.6; word-break: break-word; }
 
     /* ── History ── */
     #history-section {
@@ -287,6 +299,11 @@
   <div id="result-card">
     <p id="result-text"></p>
     <button id="copy-btn">Kopieer</button>
+    <div id="compare">
+      <span class="compare-label" id="compare-label"></span>
+      <p id="compare-text"></p>
+      <button id="compare-copy">Kopieer Parakeet</button>
+    </div>
   </div>
 
   <section id="history-section">
@@ -306,6 +323,7 @@
     const resultCard  = document.getElementById('result-card');
     const resultText  = document.getElementById('result-text');
     const copyBtn     = document.getElementById('copy-btn');
+    const compareEl   = document.getElementById('compare');
     const historyList = document.getElementById('history-list');
     const clearBtn    = document.getElementById('clear-btn');
 
@@ -472,6 +490,25 @@
       statusEl.textContent = 'Verwerken…';
     }
 
+    function showCompare(c) {
+      compareEl.classList.toggle('visible', !!c);
+      if (!c) return;
+      const label = document.getElementById('compare-label');
+      const textEl = document.getElementById('compare-text');
+      const btn = document.getElementById('compare-copy');
+      if (c.parakeet_error) {
+        label.textContent = `Whisper ${c.whisper_sec}s — Parakeet mislukt`;
+        textEl.textContent = c.parakeet_error;
+        btn.style.display = 'none';
+        return;
+      }
+      label.textContent = `Hierboven Whisper (${c.whisper_sec}s) — hieronder Parakeet (${c.parakeet_sec}s)`;
+      textEl.textContent = c.parakeet_text || '(geen tekst)';
+      btn.style.display = '';
+      btn.onclick = () => copyText(c.parakeet_text, btn);
+      resultCard.classList.add('visible');
+    }
+
     async function transcribeBlob(blob, language) {
       retryBtn.classList.remove('visible');
       statusEl.textContent = 'Verwerken…';
@@ -489,6 +526,7 @@
         try { await clearPendingRecording(); } catch {}
         pendingRecording = null;
 
+        showCompare(data.compare);
         if (text) {
           resultText.textContent = text;
           resultCard.classList.add('visible');

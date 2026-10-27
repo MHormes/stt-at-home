@@ -10,13 +10,23 @@ services:
     command: ["-m", "/models/ggml-large-v3-turbo-q5_0.bin", "--host", "0.0.0.0", "--port", "8080", "-t", "6"]
     restart: unless-stopped
 
+  # Side-by-side test: remove this service and PARAKEET_URL below to go back to whisper only
+  parakeet-api:
+    container_name: parakeet-api
+    build: ./parakeet
+    volumes:
+      - hf-cache:/cache
+    restart: unless-stopped
+
   python-be:
     container_name: python-be
     build: ./backend
     environment:
       - WHISPER_URL=http://whisper-api:8080/inference
+      - PARAKEET_URL=http://parakeet-api:8090/transcribe
     depends_on:
       - whisper-api
+      - parakeet-api
     restart: unless-stopped
 
   nginx-fe:
@@ -32,3 +42,4 @@ services:
 
 volumes:
   ssl-certs:
+  hf-cache:

@@ -31,10 +31,10 @@ image: ghcr.io/ggerganov/whisper.cpp:main
 entrypoint: ["/app/build/bin/whisper-server"]
 ```
 
-Unpinned `main` tag, so no version to bump, but `docker compose up --build` does **not** re-pull it. Pull explicitly:
+Unpinned `main` tag, so no version to bump, but `docker-compose up --build` does **not** re-pull it. Pull explicitly:
 
 ```bash
-docker compose pull whisper-api
+docker-compose pull whisper-api
 ```
 
 Note: whisper.cpp moved from `ggerganov` to the `ggml-org` GitHub org. As of Oct 2026 both `ghcr.io/ggerganov/whisper.cpp:main` and `ghcr.io/ggml-org/whisper.cpp:main` exist but serve different images, so the old path is probably no longer updated. See *Switch whisper.cpp image to ggml-org* below.
@@ -67,19 +67,19 @@ Or check [pypi.org](https://pypi.org) for each package. For major bumps on FastA
 From the project root on the CT:
 
 ```bash
-docker compose up --build -d
+docker-compose up --build -d
 ```
 
 Verify all containers are running:
 
 ```bash
-docker compose ps
+docker-compose ps
 ```
 
 Open the app in a browser (`https://<CT-IP>:8443`), record a short audio clip, and confirm a transcription comes back. Check logs if anything looks off:
 
 ```bash
-docker compose logs -f
+docker-compose logs -f
 ```
 
 ---
@@ -99,7 +99,7 @@ pct delsnapshot <CTID> <snapshot-name>
 **Python version upgrade** (e.g. 3.11 → 3.12):
 
 1. Update `FROM python:x.x-slim` in `backend/Dockerfile`
-2. `docker compose up --build -d`
+2. `docker-compose up --build -d`
 3. Test transcription end-to-end
 
 **Whisper model update** (new model released, or switching to a quantized variant):
@@ -114,7 +114,7 @@ Current model: `ggml-large-v3-turbo-q5_0.bin`, running on CPU. Ready-made files 
    ```yaml
    command: ["-m", "/models/ggml-<new-model>.bin", "--host", "0.0.0.0", "--port", "8080", "-t", "6"]
    ```
-3. `docker compose up -d whisper-api`
+3. `docker-compose up -d whisper-api`
 4. Test transcription in both Dutch and English
 
 As of Oct 2026, large-v3-turbo is the newest open-weight Whisper. OpenAI's newer speech models are API-only. See README → *Considered alternatives* for non-Whisper options.
@@ -126,7 +126,7 @@ As of Oct 2026, large-v3-turbo is the newest open-weight Whisper. OpenAI's newer
    ```bash
    docker run --rm --entrypoint ls ghcr.io/ggml-org/whisper.cpp:main /app/build/bin
    ```
-3. `docker compose pull whisper-api && docker compose up -d whisper-api`
+3. `docker-compose pull whisper-api && docker-compose up -d whisper-api`
 4. Test transcription
 
 **Thread count** (`-t` in `docker-compose.yml`): match the number of physical cores assigned to the CT. More threads than that makes it slower.

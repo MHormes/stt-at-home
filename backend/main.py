@@ -10,11 +10,13 @@ app = FastAPI()
 log = logging.getLogger("uvicorn.error")
 
 WHISPER_URL = os.getenv("WHISPER_URL", "http://whisper-api:8080/inference")
+# Optional side-by-side test: also transcribe every recording with Parakeet
+PARAKEET_URL = os.getenv("PARAKEET_URL", "")
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "whisper_url": WHISPER_URL}
+    return {"status": "ok", "whisper_url": WHISPER_URL, "parakeet_url": PARAKEET_URL or None}
 
 
 async def to_wav(data: bytes) -> bytes:
@@ -52,9 +54,31 @@ async def transcribe(audio: UploadFile = File(...), language: str = Form("nl")):
 
     result = resp.json()
     audio_sec = max(len(wav_data) - 44, 0) / 32000  # 16 kHz mono s16 wav
-    log.info("transcribed %.1fs audio in %.1fs (%s)", audio_sec, time.monotonic() - started, language)
+    whisper_sec = time.monotonic() - started
+    log.info("whisper: transcribed %.1fs audio in %.1fs (%s)", audio_sec, whisper_sec, language)
     text = re.sub(r"\s+", " ", result.get("text", "")).strip()
-    return {
+    response = {
         "text": text,
         "language": result.get("language", language),
+    }
+    if PARAKEET_URL:
+        # Runs after whisper, not alongside it, so both get the full CPU and the timings are fair
+        response["compare"] = {"whisper_sec": round(whisper_sec, 1), **await parakeet(wav_data, audio_sec)}
+    return response
+
+
+async def parakeet(wav_data: bytes, audio_sec: float) -> dict:
+    started = time.monotonic()
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        try:
+            resp = await client.post(PARAKEET_URL, files={"file": ("recording.wav", wav_data, "audio/wav")})
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            log.warning("parakeet failed: %s", e)
+            return {"parakeet_error": str(e)}
+    sec = time.monotonic() - started
+    log.info("parakeet: transcribed %.1fs audio in %.1fs", audio_sec, sec)
+    return {
+        "parakeet_text": re.sub(r"\s+", " ", resp.json().get("text", "")).strip(),
+        "parakeet_sec": round(sec, 1),
     }
