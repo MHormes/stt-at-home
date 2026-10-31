@@ -11,7 +11,7 @@ Check each base image for patch/minor bumps and update in place.
 **`backend/Dockerfile`** and **`parakeet/Dockerfile`** — Python base image (keep both in sync):
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.14-slim
 ```
 
 Check [hub.docker.com/\_/python](https://hub.docker.com/_/python). Patch bumps are pulled automatically by `--pull` in step 4. A minor bump (e.g. 3.11 → 3.12) is an occasional task, see below.
