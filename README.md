@@ -30,14 +30,12 @@ The TLS cert is self-signed and generated on first start by `frontend/entrypoint
 - **Languages:** 25 European languages including Dutch and English. Language is **auto-detected**; there is no language setting.
 - **Long audio:** Parakeet handles ~20–30 s at once, so the silero VAD splits recordings at pauses and the segment texts are joined.
 - **Hardware:** Proxmox LXC CT with 6 cores of an Intel i7-10710U (15 W laptop chip). No GPU.
-- **Speed (measured Oct 2026):** 32.2 s of audio in 3.8 s with Parakeet (~8.5× real time), against 57.9 s with Whisper large-v3-turbo.
+- **Speed (measured Oct 2026):** 32.2 s of audio in 3.8 s with Parakeet (~8.5× real time).
 
-### Engine history and alternatives
+### Considered alternatives
 
-- **Whisper large-v3-turbo (whisper.cpp), until Oct 2026.** Very good Dutch and English, but on this CPU each 30 s window cost ~28 s, the same for the f16 and q5_0 models (the build already used AVX2/FMA). Since Oct 2026 Parakeet is on trial as the main engine. The Whisper models are still in `./models` on the CT. To switch back, restore the Whisper-only version (commit `e3d5aef`): `git checkout e3d5aef -- docker-compose.yml backend/main.py frontend/index.html`, then `docker-compose up --build -d --remove-orphans`. Possible Whisper speedups that weren't tried: the Intel UHD 620 iGPU via OpenVINO, or `--audio-ctx` for short clips.
-- **Transcribe-while-talking (tried twice and reverted, Oct 2026):** cutting the recording at pauses and transcribing segments while still talking. With Whisper, segments queued up faster than they were processed (~28 s per window). With Parakeet (5–20 s segments) the speed was fine, but no live text showed up in practice, words were cut up at the segment boundaries, and quality dropped to unusable. Both engines need the full sentence context, so this approach is dropped. Real live transcription would need a streaming model (see Voxtral below).
+- **Transcribe-while-talking (tried and reverted, Oct 2026):** cutting the recording at pauses and transcribing segments while still talking. Speed was fine with 5–20 s segments, but no live text showed up in practice, words were cut up at the segment boundaries, and quality dropped to unusable, because the model needs the full sentence as context. Real live transcription would need a streaming model.
 - **Mistral Voxtral Mini 4B Realtime:** true word-by-word streaming, Dutch supported, Apache 2.0. Built for a GPU; CPU inference via `voxtral.cpp`/llama.cpp GGUF is experimental.
-- OpenAI's newer speech models (`gpt-4o-transcribe`, `gpt-transcribe`, `gpt-live-transcribe`) are API-only and therefore out of scope.
 
 ## Setup
 

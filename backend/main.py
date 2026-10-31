@@ -30,7 +30,6 @@ async def to_wav(data: bytes) -> bytes:
     return wav
 
 
-# Parakeet detects the language itself; a `language` form field from the frontend is ignored
 @app.post("/api/transcribe")
 async def transcribe(audio: UploadFile = File(...)):
     data = await audio.read()
